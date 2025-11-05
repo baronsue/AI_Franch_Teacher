@@ -1,0 +1,41 @@
+# 应用配置文件
+
+app:
+  name: "AI French Language Assistant"
+  version: "1.0.0"
+  debug: true
+
+llm:
+  provider: "qwen"  # qwen, deepseek, openai
+  model: "qwen-turbo"
+  temperature: 0.7
+  max_tokens: 2000
+  timeout: 30
+
+speech_to_text:
+  engine: "whisper"  # whisper, paraformer
+  model: "base"
+  language: "zh"  # 主要识别中文
+  energy_threshold: 300
+  pause_threshold: 0.8
+
+text_to_speech:
+  engine: "edge-tts"  # edge-tts, melotts, cosyvoice
+  voices:
+    chinese: "zh-CN-XiaoxiaoNeural"
+    french: "fr-FR-DeniseNeural"
+  rate: "+0%"
+  volume: "+0%"
+
+conversation:
+  max_history: 10
+  context_window: 5
+
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "logs/app.log"
+
+ui:
+  interface: "voice"  # voice, cli, web
+  theme: "default"

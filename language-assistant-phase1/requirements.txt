@@ -1,0 +1,28 @@
+# LLM API客户端
+requests>=2.31.0
+openai>=1.0.0
+
+# 语音识别
+openai-whisper>=20230918
+# 或使用 funasr (Paraformer)
+# funasr>=1.0.0
+
+# 语音合成
+edge-tts>=6.1.0
+# 或使用其他TTS库
+# melotts>=0.1.0
+# cosyvoice>=0.1.0
+
+# 配置管理
+python-dotenv>=1.0.0
+pyyaml>=6.0
+
+# 音频处理
+pyaudio>=0.2.13
+sounddevice>=0.4.6
+soundfile>=0.12.1
+numpy>=1.24.0
+
+# 工具
+colorama>=0.4.6
+tqdm>=4.66.0
