@@ -1,0 +1,62 @@
+# AI法语老师配置文件
+
+# 应用配置
+app:
+  name: "AI French Teacher"
+  version: "1.0.0"
+  debug: true
+  host: "0.0.0.0"
+  port: 5000
+
+# API配置
+api:
+  # LLM API配置
+  llm:
+    provider: "qwen"  # 可选: qwen, deepseek, openai
+    api_key: ""  # 从环境变量读取
+    api_base: "https://dashscope.aliyuncs.com/api/v1"
+    model: "qwen-plus"
+    max_tokens: 2000
+    temperature: 0.7
+
+  # 语音识别配置 (Phase 1后期)
+  stt:
+    provider: "whisper"  # 可选: whisper, paraformer
+    model: "base"
+    language: "zh"
+
+  # 语音合成配置 (Phase 1后期)
+  tts:
+    provider: "edge-tts"  # 可选: edge-tts, melotts
+    voice_zh: "zh-CN-XiaoxiaoNeural"  # 中文语音
+    voice_fr: "fr-FR-DeniseNeural"    # 法语语音
+    rate: "+0%"
+    volume: "+0%"
+
+# 对话配置
+conversation:
+  max_history_length: 20  # 最大历史记录数
+  session_timeout: 1800   # 会话超时时间（秒）
+
+# 日志配置
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "logs/app.log"
+
+# 安全配置
+security:
+  secret_key: "change-this-in-production"
+  max_content_length: 16777216  # 16MB
+  rate_limit: 100  # 每分钟请求次数限制
+
+# 数据库配置 (Phase 2)
+database:
+  type: "sqlite"
+  path: "data/french_teacher.db"
+
+# 向量数据库配置 (Phase 2)
+vector_db:
+  provider: "chromadb"
+  collection_name: "french_course_materials"
+  embedding_model: "bge-large-zh"
