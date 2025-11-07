@@ -209,10 +209,13 @@ class VoiceInterface:
         Returns:
             bool: 是否成功
         """
+        output_file = None
         try:
-            # 生成临时文件
-            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp_file:
-                output_file = tmp_file.name
+            # 创建临时文件，设置安全权限
+            import os
+            fd, output_file = tempfile.mkstemp(suffix=".mp3", prefix="tts_")
+            os.close(fd)  # 关闭文件描述符，后续由synthesize使用
+            os.chmod(output_file, 0o600)  # 仅所有者可读写
 
             # 合成语音
             print("🔊 正在合成语音...")
@@ -225,9 +228,6 @@ class VoiceInterface:
             print("📢 正在播放...")
             self.audio_player.play(output_file)
 
-            # 清理临时文件
-            Path(output_file).unlink(missing_ok=True)
-
             return True
 
         except SpeechSynthesisError as e:
@@ -238,6 +238,14 @@ class VoiceInterface:
             logger.error(f"播放失败: {e}")
             print(f"❌ 播放失败: {e}")
             return False
+        finally:
+            # 确保清理临时文件
+            if output_file:
+                try:
+                    if os.path.exists(output_file):
+                        os.unlink(output_file)
+                except Exception as e:
+                    logger.warning(f"Failed to delete temporary file {output_file}: {e}")
 
     def handle_voice_interaction(self):
         """处理一轮语音交互"""

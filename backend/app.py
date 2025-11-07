@@ -9,6 +9,11 @@ import os
 import sys
 import logging
 from datetime import datetime
+from dotenv import load_dotenv
+import secrets
+
+# 加载环境变量
+load_dotenv()
 
 # 添加项目路径到系统路径
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -27,12 +32,28 @@ app = Flask(
     static_folder='../frontend/static'
 )
 
-# 启用CORS（跨域资源共享）
-CORS(app)
+# 启用CORS（跨域资源共享）- 限制到特定域名
+# 从环境变量读取允许的源，默认只允许localhost
+ALLOWED_ORIGINS = os.getenv('ALLOWED_ORIGINS', 'http://localhost:5000,http://127.0.0.1:5000').split(',')
+CORS(app, resources={
+    r"/api/*": {
+        "origins": ALLOWED_ORIGINS,
+        "methods": ["GET", "POST", "OPTIONS"],
+        "allow_headers": ["Content-Type"],
+        "max_age": 3600
+    }
+})
 
 # 配置
-app.config['SECRET_KEY'] = 'your-secret-key-change-in-production'
+# 从环境变量读取SECRET_KEY，如果不存在则生成一个随机密钥（仅用于开发）
+SECRET_KEY = os.getenv('SECRET_KEY')
+if not SECRET_KEY:
+    logger.warning("未设置SECRET_KEY环境变量，使用临时随机密钥（不适用于生产环境）")
+    SECRET_KEY = secrets.token_hex(32)
+
+app.config['SECRET_KEY'] = SECRET_KEY
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 最大16MB上传
+app.config['JSON_MAX_CONTENT_LENGTH'] = 1024 * 1024  # JSON限制1MB
 
 # 对话历史存储（实际应用中应该使用数据库）
 conversation_sessions = {}
@@ -52,6 +73,10 @@ def chat():
     接收用户消息，返回AI回复
     """
     try:
+        # 验证Content-Type
+        if not request.is_json:
+            return jsonify({'error': '请求必须是JSON格式'}), 400
+
         data = request.get_json()
 
         if not data or 'message' not in data:
@@ -59,15 +84,33 @@ def chat():
                 'error': '请求格式错误：缺少message字段'
             }), 400
 
-        user_message = data['message'].strip()
-        conversation_history = data.get('history', [])
+        # 验证message类型和长度
+        message = data.get('message')
+        if not isinstance(message, str):
+            return jsonify({'error': 'message必须是字符串类型'}), 400
+
+        user_message = message.strip()
 
         if not user_message:
             return jsonify({
                 'error': '消息不能为空'
             }), 400
 
-        logger.info(f"收到用户消息: {user_message}")
+        # 限制消息长度
+        if len(user_message) > 5000:
+            return jsonify({'error': '消息过长，最多5000个字符'}), 400
+
+        conversation_history = data.get('history', [])
+
+        # 验证历史记录格式
+        if not isinstance(conversation_history, list):
+            conversation_history = []
+
+        # 限制历史记录长度
+        conversation_history = conversation_history[-20:]
+
+        # 记录日志时不包含敏感内容
+        logger.info(f"收到聊天请求，消息长度: {len(user_message)}")
 
         # 检测用户意图
         intent = detect_intent(user_message)
@@ -82,11 +125,13 @@ def chat():
             'timestamp': datetime.now().isoformat()
         })
 
+    except ValueError as e:
+        logger.error(f"请求数据格式错误: {str(e)}")
+        return jsonify({'error': '请求数据格式错误'}), 400
     except Exception as e:
         logger.error(f"处理聊天请求时发生错误: {str(e)}", exc_info=True)
-        return jsonify({
-            'error': f'服务器错误: {str(e)}'
-        }), 500
+        # 不向客户端暴露详细错误信息
+        return jsonify({'error': '服务器内部错误，请稍后重试'}), 500
 
 
 @app.route('/api/translate', methods=['POST'])
@@ -96,13 +141,33 @@ def translate():
     中文 <-> 法语翻译
     """
     try:
+        # 验证Content-Type
+        if not request.is_json:
+            return jsonify({'error': '请求必须是JSON格式'}), 400
+
         data = request.get_json()
-        text = data.get('text', '').strip()
-        source_lang = data.get('source_lang', 'zh')
-        target_lang = data.get('target_lang', 'fr')
+
+        # 验证text字段
+        text = data.get('text', '')
+        if not isinstance(text, str):
+            return jsonify({'error': 'text必须是字符串类型'}), 400
+
+        text = text.strip()
 
         if not text:
             return jsonify({'error': '文本不能为空'}), 400
+
+        # 限制文本长度
+        if len(text) > 10000:
+            return jsonify({'error': '文本过长，最多10000个字符'}), 400
+
+        # 验证语言代码
+        VALID_LANGS = {'zh', 'fr', 'en'}
+        source_lang = data.get('source_lang', 'zh')
+        target_lang = data.get('target_lang', 'fr')
+
+        if source_lang not in VALID_LANGS or target_lang not in VALID_LANGS:
+            return jsonify({'error': '不支持的语言代码'}), 400
 
         # 这里应该调用实际的翻译API
         # 目前返回模拟数据
@@ -114,9 +179,12 @@ def translate():
             'target_lang': target_lang
         })
 
+    except ValueError as e:
+        logger.error(f"请求数据格式错误: {str(e)}")
+        return jsonify({'error': '请求数据格式错误'}), 400
     except Exception as e:
-        logger.error(f"翻译错误: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"翻译错误: {str(e)}", exc_info=True)
+        return jsonify({'error': '翻译服务暂时不可用'}), 500
 
 
 @app.route('/api/pronunciation', methods=['POST'])
@@ -126,24 +194,44 @@ def pronunciation():
     返回法语单词/句子的发音音频
     """
     try:
+        # 验证Content-Type
+        if not request.is_json:
+            return jsonify({'error': '请求必须是JSON格式'}), 400
+
         data = request.get_json()
-        text = data.get('text', '').strip()
+
+        # 验证text字段
+        text = data.get('text', '')
+        if not isinstance(text, str):
+            return jsonify({'error': 'text必须是字符串类型'}), 400
+
+        text = text.strip()
 
         if not text:
             return jsonify({'error': '文本不能为空'}), 400
 
+        # 限制文本长度
+        if len(text) > 1000:
+            return jsonify({'error': '文本过长，最多1000个字符'}), 400
+
         # 这里应该调用TTS API生成音频
         # 目前返回模拟数据
-        audio_url = f"/api/audio/{text}"
+        # 注意：不直接使用用户输入构造URL，而是返回安全的标识符
+        import hashlib
+        text_hash = hashlib.sha256(text.encode()).hexdigest()[:16]
+        audio_url = f"/api/audio/{text_hash}"
 
         return jsonify({
             'audio_url': audio_url,
             'text': text
         })
 
+    except ValueError as e:
+        logger.error(f"请求数据格式错误: {str(e)}")
+        return jsonify({'error': '请求数据格式错误'}), 400
     except Exception as e:
-        logger.error(f"发音生成错误: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+        logger.error(f"发音生成错误: {str(e)}", exc_info=True)
+        return jsonify({'error': '发音服务暂时不可用'}), 500
 
 
 @app.route('/api/health', methods=['GET'])
@@ -339,11 +427,20 @@ def internal_error(error):
 
 if __name__ == '__main__':
     logger.info("启动AI法语老师后端服务...")
-    logger.info("访问 http://localhost:5000 开始使用")
 
-    # 开发模式运行
+    # 从环境变量读取配置
+    debug_mode = os.getenv('FLASK_DEBUG', 'False').lower() == 'true'
+    host = os.getenv('FLASK_HOST', '127.0.0.1')  # 默认只监听本地
+    port = int(os.getenv('FLASK_PORT', '5000'))
+
+    if debug_mode:
+        logger.warning("⚠️  运行在调试模式下，不要在生产环境使用！")
+
+    logger.info(f"访问 http://{host}:{port} 开始使用")
+
+    # 运行应用
     app.run(
-        host='0.0.0.0',
-        port=5000,
-        debug=True
+        host=host,
+        port=port,
+        debug=debug_mode
     )

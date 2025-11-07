@@ -16,6 +16,12 @@ const voiceBtn = document.getElementById('voiceBtn');
 
 // ===== 初始化 =====
 document.addEventListener('DOMContentLoaded', () => {
+    // 验证DOM元素存在
+    if (!chatMessages || !userInput || !sendBtn) {
+        console.error('Required DOM elements not found');
+        return;
+    }
+
     initializeEventListeners();
     loadSettings();
     autoResizeTextarea();
@@ -78,6 +84,12 @@ async function handleSendMessage() {
     const message = userInput.value.trim();
 
     if (!message || isProcessing) {
+        return;
+    }
+
+    // 限制消息长度
+    if (message.length > 5000) {
+        showNotification('消息过长，最多5000个字符', 'error');
         return;
     }
 
@@ -186,33 +198,54 @@ function addMessage(role, content) {
 
 // ===== 消息格式化 =====
 function formatMessage(content) {
-    // 转义HTML
-    let formatted = content
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
+    // 严格转义所有HTML字符，防止XSS攻击
+    let formatted = escapeHtml(content);
 
     // 处理换行
     formatted = formatted.replace(/\n/g, '<br>');
 
-    // 处理加粗 **text**
-    formatted = formatted.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    // 安全地处理Markdown格式（使用非贪婪匹配并限制长度）
+    // 处理加粗 **text** (限制在200字符内)
+    formatted = formatted.replace(/\*\*(.{1,200}?)\*\*/g, '<strong>$1</strong>');
 
-    // 处理斜体 *text*
-    formatted = formatted.replace(/\*(.+?)\*/g, '<em>$1</em>');
+    // 处理斜体 *text* (限制在100字符内)
+    formatted = formatted.replace(/\*(.{1,100}?)\*(?!\*)/g, '<em>$1</em>');
 
-    // 处理代码 `code`
-    formatted = formatted.replace(/`(.+?)`/g, '<code style="background: #f0f0f0; padding: 2px 6px; border-radius: 4px;">$1</code>');
+    // 处理代码 `code` (限制在50字符内)
+    formatted = formatted.replace(/`(.{1,50}?)`/g, '<code style="background: #f0f0f0; padding: 2px 6px; border-radius: 4px;">$1</code>');
 
-    // 高亮法语文本
-    formatted = formatted.replace(/([A-Za-zÀ-ÿ]+(?:\s+[A-Za-zÀ-ÿ]+){2,})/g, (match) => {
-        if (match.length > 5 && /[À-ÿ]/.test(match)) {
-            return `<span style="color: var(--primary-color); font-weight: 500;">${match}</span>`;
+    // 高亮法语文本（更安全的实现）
+    formatted = highlightFrenchText(formatted);
+
+    return formatted;
+}
+
+// HTML转义函数
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// 安全地高亮法语文本
+function highlightFrenchText(text) {
+    // 使用更简单、更安全的正则，避免ReDoS攻击
+    // 只匹配包含法语特殊字符的短语（限制在100字符内）
+    const frenchPattern = /\b([A-Za-zÀ-ÿ]{3,}(?:\s+[A-Za-zÀ-ÿ]{2,}){1,5})\b/g;
+
+    return text.replace(frenchPattern, (match) => {
+        // 严格限制匹配长度，防止性能问题
+        if (match.length > 100) {
+            return match;
+        }
+        // 检查是否包含法语特殊字符
+        if (/[À-ÿ]/.test(match)) {
+            // 再次转义以防注入
+            const escaped = escapeHtml(match);
+            return `<span style="color: var(--primary-color); font-weight: 500;">${escaped}</span>`;
         }
         return match;
     });
-
-    return formatted;
 }
 
 // ===== 显示/隐藏加载动画 =====
@@ -252,7 +285,25 @@ function handleVoiceInput() {
 
 // ===== 播放音频 =====
 function playAudio(audioUrl) {
+    // 验证URL是否安全（只允许相对路径）
+    if (!audioUrl.startsWith('/api/audio/')) {
+        console.error('Invalid audio URL');
+        return;
+    }
+
     const audio = new Audio(audioUrl);
+
+    // 添加错误处理
+    audio.addEventListener('error', () => {
+        console.error('Failed to load audio');
+        showNotification('音频加载失败', 'error');
+    });
+
+    // 播放完成后清理
+    audio.addEventListener('ended', () => {
+        audio.src = '';
+    });
+
     audio.play().catch(err => {
         console.error('Audio playback error:', err);
     });
@@ -260,38 +311,85 @@ function playAudio(audioUrl) {
 
 // ===== 设置管理 =====
 function loadSettings() {
-    const settings = JSON.parse(localStorage.getItem('frenchTeacherSettings') || '{}');
+    try {
+        const settingsStr = localStorage.getItem('frenchTeacherSettings');
 
-    if (settings.apiKey) {
-        document.getElementById('apiKeyInput').value = settings.apiKey;
-    }
+        // 验证存储的数据不为空且不过大
+        if (!settingsStr || settingsStr.length > 10000) {
+            return;
+        }
 
-    if (settings.language) {
-        document.getElementById('languageSelect').value = settings.language;
-    }
+        const settings = JSON.parse(settingsStr);
 
-    if (settings.autoPlayAudio !== undefined) {
-        document.getElementById('autoPlayAudio').checked = settings.autoPlayAudio;
+        // 验证settings是对象类型
+        if (typeof settings !== 'object' || settings === null) {
+            return;
+        }
+
+        // 注意：API密钥不应存储在前端localStorage中
+        // 已移除API密钥相关代码以提高安全性
+
+        // 只加载安全的设置项
+        if (settings.language && typeof settings.language === 'string') {
+            const languageSelect = document.getElementById('languageSelect');
+            if (languageSelect && ['zh', 'fr', 'en'].includes(settings.language)) {
+                languageSelect.value = settings.language;
+            }
+        }
+
+        if (typeof settings.autoPlayAudio === 'boolean') {
+            const autoPlayCheckbox = document.getElementById('autoPlayAudio');
+            if (autoPlayCheckbox) {
+                autoPlayCheckbox.checked = settings.autoPlayAudio;
+            }
+        }
+    } catch (e) {
+        console.error('Failed to load settings:', e);
+        // 清除可能损坏的设置
+        localStorage.removeItem('frenchTeacherSettings');
     }
 }
 
 function handleSaveSettings() {
-    const settings = {
-        apiKey: document.getElementById('apiKeyInput').value,
-        language: document.getElementById('languageSelect').value,
-        autoPlayAudio: document.getElementById('autoPlayAudio').checked
-    };
+    try {
+        // 只保存安全的非敏感设置
+        const settings = {
+            language: document.getElementById('languageSelect')?.value || 'zh',
+            autoPlayAudio: document.getElementById('autoPlayAudio')?.checked || false
+        };
 
-    localStorage.setItem('frenchTeacherSettings', JSON.stringify(settings));
-    settingsModal.style.display = 'none';
+        // 注意：API密钥应该通过后端认证管理，不存储在前端
+        // 已移除API密钥存储以提高安全性
 
-    // 显示保存成功提示
-    addMessage('assistant', '✅ 设置已保存！');
+        // 验证设置值
+        if (!['zh', 'fr', 'en'].includes(settings.language)) {
+            settings.language = 'zh';
+        }
+
+        localStorage.setItem('frenchTeacherSettings', JSON.stringify(settings));
+        settingsModal.style.display = 'none';
+
+        // 显示保存成功提示
+        addMessage('assistant', '✅ 设置已保存！');
+    } catch (e) {
+        console.error('Failed to save settings:', e);
+        showNotification('设置保存失败', 'error');
+    }
 }
 
 function getAutoPlaySetting() {
-    const settings = JSON.parse(localStorage.getItem('frenchTeacherSettings') || '{}');
-    return settings.autoPlayAudio !== false; // 默认为true
+    try {
+        const settingsStr = localStorage.getItem('frenchTeacherSettings');
+        if (!settingsStr) {
+            return true; // 默认值
+        }
+
+        const settings = JSON.parse(settingsStr);
+        return settings.autoPlayAudio !== false; // 默认为true
+    } catch (e) {
+        console.error('Failed to read auto-play setting:', e);
+        return true;
+    }
 }
 
 // ===== 工具函数 =====

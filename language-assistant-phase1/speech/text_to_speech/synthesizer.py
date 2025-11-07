@@ -143,9 +143,22 @@ class SpeechSynthesizer:
         Returns:
             bool: 是否成功
         """
-        return asyncio.run(
-            self.synthesize_async(text, output_file, language)
-        )
+        # 修复事件循环问题：检查是否已有运行中的事件循环
+        try:
+            loop = asyncio.get_running_loop()
+            # 如果已有事件循环，在新线程中运行
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(
+                    asyncio.run,
+                    self.synthesize_async(text, output_file, language)
+                )
+                return future.result()
+        except RuntimeError:
+            # 没有运行中的事件循环，直接运行
+            return asyncio.run(
+                self.synthesize_async(text, output_file, language)
+            )
 
     def synthesize_chinese(self, text: str, output_file: str) -> bool:
         """

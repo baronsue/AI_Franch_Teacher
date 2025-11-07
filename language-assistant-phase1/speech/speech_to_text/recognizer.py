@@ -93,24 +93,35 @@ class SpeechRecognizer:
         # 将音频数据保存到临时文件
         import tempfile
         import wave
+        import os
 
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_file:
-            tmp_path = tmp_file.name
+        # 创建临时文件，设置安全权限（只有所有者可读写）
+        fd, tmp_path = tempfile.mkstemp(suffix=".wav", prefix="stt_")
+        try:
+            # 设置文件权限为600 (仅所有者可读写)
+            os.chmod(tmp_path, 0o600)
 
             # 写入WAV文件
-            with wave.open(tmp_path, 'wb') as wf:
-                wf.setnchannels(1)
-                wf.setsampwidth(2)  # 16-bit
-                wf.setframerate(sample_rate)
-                wf.writeframes(audio_data)
+            with os.fdopen(fd, 'wb') as tmp_file:
+                with wave.open(tmp_file, 'wb') as wf:
+                    wf.setnchannels(1)
+                    wf.setsampwidth(2)  # 16-bit
+                    wf.setframerate(sample_rate)
+                    wf.writeframes(audio_data)
 
-        try:
             # 识别临时文件
             text = self.recognize_file(tmp_path)
             return text
+        except Exception as e:
+            # 确保即使发生异常也删除临时文件
+            raise
         finally:
-            # 删除临时文件
-            Path(tmp_path).unlink(missing_ok=True)
+            # 安全地删除临时文件
+            try:
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
+            except Exception as e:
+                logger.warning(f"Failed to delete temporary file {tmp_path}: {e}")
 
     def get_model_info(self) -> dict:
         """
